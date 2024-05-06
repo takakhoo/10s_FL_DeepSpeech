@@ -5,7 +5,7 @@ from .ctc import CustomCTCLoss
 class TestCTC:
     def test_ctc_val(self):
         device    = 'cpu'
-        T  = 40
+        T  = 100
         C_SIZE = 5
 
         tgt_len = [5,5,5,5]
@@ -67,6 +67,7 @@ class TestCTC:
 
         print('norm:', torch.norm(grad_1-grad_2))
 
-        assert torch.allclose(grad_1,grad_2) # <=== Pased this test 
-        # torch.autograd.gradcheck(ctc_loss_custom, (probs_1, inp_len, tgt_len, targets)) # <=== DIDN'T PASS THIS TEST WHEN COMPARE TO FINITE DIFFERENCES
+        assert torch.allclose(grad_1,grad_2) # <=== Passed this test 
+        # torch.autograd.gradcheck(ctc_loss_custom, (probs_1, inp_len, tgt_len, targets)) 
+        # <=== DIDN'T PASS THIS TEST WHEN COMPARE TO FINITE DIFFERENCES
 

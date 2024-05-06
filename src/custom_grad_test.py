@@ -340,12 +340,12 @@ class TestCustomGradFn:
         ctc_lib.backward()
 
         grad_1 = probs_1.grad.data
-        # grad_2 = CTCLossGradFn.apply(CTCLossFn.saved_tensors) # how to get saved tensors??
+        grad_2 = CTCLossGradFn.apply(CTCLossFn.saved_tensors) # how to get saved tensors??
 
 
-        # print('norm:', torch.norm(grad_1-grad_2))
+        print('norm:', torch.norm(grad_1-grad_2))
 
-        # assert torch.allclose(grad_1,grad_2) # <=== Passed this test 
+        assert torch.allclose(grad_1,grad_2) # <=== Passed this test 
         # # torch.autograd.gradcheck(ctc_loss_custom, (probs_1, inp_len, tgt_len, targets)) # <=== DIDN'T PASS THIS TEST WHEN COMPARE TO FINITE DIFFERENCES
 
 
