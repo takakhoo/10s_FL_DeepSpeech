@@ -1,19 +1,2 @@
-# python src/reconstruct_ds1.py --index 0 --batch_min_dur 1000 --batch_max_dur 2000
-python src/reconstruct_ds1.py --index 0  --batch_min_dur 0 --batch_max_dur 1000 
-# python src/reconstruct_ds1.py --index 1 --batch_min_dur 1000 --batch_max_dur 2000
-python src/reconstruct_ds1.py --index 2 --batch_min_dur 1000 --batch_max_dur 2000
-python src/reconstruct_ds1.py --index 3 --batch_min_dur 1000 --batch_max_dur 2000
-python src/reconstruct_ds1.py --index 4 --batch_min_dur 1000 --batch_max_dur 2000
-
-python src/reconstruct_ds1.py --index 0 --batch_min_dur 2000 --batch_max_dur 3000
-python src/reconstruct_ds1.py --index 1 --batch_min_dur 2000 --batch_max_dur 3000
-python src/reconstruct_ds1.py --index 2 --batch_min_dur 2000 --batch_max_dur 3000
-python src/reconstruct_ds1.py --index 3 --batch_min_dur 2000 --batch_max_dur 3000
-python src/reconstruct_ds1.py --index 4 --batch_min_dur 2000 --batch_max_dur 3000
-
-python src/reconstruct_ds1.py --index 0 --batch_min_dur 3000 --batch_max_dur 4000
-python src/reconstruct_ds1.py --index 1 --batch_min_dur 3000 --batch_max_dur 4000
-python src/reconstruct_ds1.py --index 2 --batch_min_dur 3000 --batch_max_dur 4000
-python src/reconstruct_ds1.py --index 3 --batch_min_dur 3000 --batch_max_dur 4000
-python src/reconstruct_ds1.py --index 4 --batch_min_dur 3000 --batch_max_dur 4000
-
+# example: run on gpu 0, batch start index 0, end index inf, min duration 0, max duration 1000
+CUDA_VISIBLE_DEVICES="0" python src/reconstruct_ds1_run_many_sample.py --batch-start 0 --batch-end 10000 --batch_min_dur 0 --batch_max_dur 1000 
