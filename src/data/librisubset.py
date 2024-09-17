@@ -2,10 +2,60 @@
 import torch
 import soundfile
 import os
+import h5py
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
 from torchvision.transforms import Compose
+
+class HDF5SampledDataset(Dataset):
+    '''
+    Dataset to load individual HDF5 files containing (numpy array, text, file_path, duration, sampling_rate).
+    '''
+    def __init__(self, hdf5_dir, min_length=0, max_length=100000, transform=None, target_transform=None):
+        # Get list of HDF5 files
+        self.hdf5_files = sorted([f for f in os.listdir(hdf5_dir) if f.endswith('.h5')])
+        self.hdf5_dir = hdf5_dir
+        self.min_length = min_length
+        self.max_length = max_length
+        self._transform = transform
+        self._target_transform = target_transform
+
+        # Filter the dataset based on the duration in the HDF5 files
+        self.filtered_files = []
+        for hdf5_file in self.hdf5_files:
+            file_path = os.path.join(hdf5_dir, hdf5_file)
+            with h5py.File(file_path, 'r') as hdf5:
+                duration = hdf5['duration'][()]
+                if self.min_length <= duration < self.max_length:
+                    self.filtered_files.append(hdf5_file)
+
+    def __len__(self):
+        return len(self.filtered_files)
+
+    def __getitem__(self, index):
+        # Get the corresponding HDF5 file path
+        hdf5_file = self.filtered_files[index]
+        hdf5_path = os.path.join(self.hdf5_dir, hdf5_file)
+
+        # Read the data from the HDF5 file
+        with h5py.File(hdf5_path, 'r') as hdf5:
+            audio = hdf5['array'][:]
+            text = hdf5['text'][()].decode('utf-8')
+            # file_path = hdf5['file_path'][()].decode('utf-8')
+            # duration = hdf5['duration'][()]
+            # rate = hdf5['sampling_rate'][()]
+
+
+        # Apply optional transformations to audio
+        if self._transform is not None:
+            audio = self._transform(audio)
+
+        # Apply optional transformations to target text
+        if self._target_transform is not None:
+            text = self._target_transform(text)
+
+        return audio, text
 
 class LibriSampledDataset(Dataset):
     '''
@@ -28,8 +78,6 @@ class LibriSampledDataset(Dataset):
         self._transform = transform
         self._target_transform = target_transform
 
-
-
     def __len__(self):
         return len(self.utts)
 
@@ -38,6 +86,7 @@ class LibriSampledDataset(Dataset):
 
         path, dur, target= self.utts[index].split(',') #target is transcript
         audio, rate = soundfile.read(path, dtype='int16')
+        print(path)
         assert rate == 16000, '%r sample rate != 16000' % path
 
         if self._transform is not None:
@@ -47,6 +96,37 @@ class LibriSampledDataset(Dataset):
             target = self._target_transform(target)
 
         return audio, target
+
+def get_dataset_libri_sampled_folder_subset(net,FLAGS):
+
+    target_transform = Compose([str.lower,
+                net.ALPHABET.get_indices,
+                torch.IntTensor])
+    file_path = '/scratch/f006pq6/projects/asr-grad-reconstruction/samples/samples_below_4s_bucket_500_all_minh.txt'
+    # dataset = LibriSampledDataset(file_path, min_length=FLAGS.batch_min_dur, max_length=FLAGS.batch_max_dur, transform=net.transform, target_transform=target_transform)
+    dataset = HDF5SampledDataset(FLAGS.dataset_path, min_length=FLAGS.batch_min_dur, max_length=FLAGS.batch_max_dur, transform=net.transform, target_transform=target_transform)
+
+    #get subset of the dataset start from FLAGS.start_idx to FLAGS.end_idx
+    #using torch Subset
+    if FLAGS.batch_end == -1 or FLAGS.batch_end > len(dataset): 
+        FLAGS.batch_end = len(dataset)
+
+    # import ipdb;ipdb.set_trace()
+    dataset = torch.utils.data.Subset(dataset, range(FLAGS.batch_start, FLAGS.batch_end))
+    
+
+
+    loader = torch.utils.data.DataLoader(dataset,
+                                         collate_fn=collate_input_sequences,
+                                         pin_memory=torch.cuda.is_available(),
+                                         num_workers=0,
+                                         batch_size=FLAGS.batch_size,
+                                         shuffle=False)
+    print('number of utterances:', len(dataset))
+    print('example shape of input:', dataset[0][0][0].shape)
+    print('number of frames in example:', dataset[0][0][1])
+    print('example target:', dataset[0][1])
+    return dataset, loader
 
 def get_dataset_libri_sampled_loader(net,FLAGS):
     # dataset_1 = LibriSpeech(root='/scratch/f006pq6/datasets/librispeech/', subsets=['test-clean'], download=True,

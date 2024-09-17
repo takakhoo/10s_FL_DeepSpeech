@@ -26,7 +26,7 @@ def plot_mfcc(mfcc_tensor):
     display(plt.gcf())
     plt.close()
 
-def plot_four_graphs(gt_tensor, reconstructed_tensor, loss, loss_grad, loss_reg,epoch, FLAGS, prefix=''):
+def plot_four_graphs(gt_tensor, reconstructed_tensor, loss, loss_grad, loss_reg,epoch, prefix='', FLAGS=None):
     """
     Plot four graphs: ground truth spectrogram, reconstructed spectrogram, 
     difference between the two, and loss over epoch.
