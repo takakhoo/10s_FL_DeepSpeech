@@ -36,10 +36,6 @@ from utils.util import *
 from loss.loss  import *
 
 # %%
-torch.autograd.set_detect_anomaly(True)
-
-# %%
-
 def get_device_net(FLAGS, use_relu):
     device = 'cuda:0'
     net = DeepSpeech1WithContextFrames(FLAGS.n_context, FLAGS.drop_prob, use_relu=use_relu).to(device)
