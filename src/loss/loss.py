@@ -1,9 +1,5 @@
 import torch
 def grad_distance(g1, g2, FLAGS):
-
-    # use 1-costine similarity
-    
-     
     if FLAGS.top_grad_percentage < 1.0 and g1.dim() >=2 : # only do this for 2D or higher
         top_k = int(FLAGS.top_grad_percentage * g2.numel())
         g1 = g1.flatten()
@@ -13,8 +9,15 @@ def grad_distance(g1, g2, FLAGS):
         g1 = g1[indices]
         g2 = g2[indices]
 
-
-    return 1 - torch.nn.functional.cosine_similarity(g1.reshape(1,-1), g2.reshape(1,-1))
+    if FLAGS.distance_function.lower() == 'cosine':
+        # use 1-costine similarity
+        return 1 - torch.nn.functional.cosine_similarity(g1.reshape(1,-1), g2.reshape(1,-1))
+    elif FLAGS.distance_function.lower() == 'l2':
+        return torch.nn.functional.mse_loss(g1, g2)
+    elif FLAGS.distance_function.lower() == 'l1':
+        return torch.nn.functional.l1_loss(g1, g2)
+    else:
+        raise NotImplementedError
 
 # ------------------------------------------------------------------------------
 # Meta loss

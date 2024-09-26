@@ -134,6 +134,9 @@ def first_order_optimization_loop(inputs, x_param, output_sizes, target_sizes,
         gm_weight_distance = grad_distance(dldws[0], dldw_targets[0], FLAGS)
         gm_bias_distance   = grad_distance(dldws[1], dldw_targets[1], FLAGS)
 
+        if i%300==0 and i>1:
+            import ipdb;ipdb.set_trace()
+ 
         # regloss = tv_norm(x_param)
         if FLAGS.reg == 'L2':
             regloss = torch.norm(x_param, p=2)
@@ -381,6 +384,7 @@ if __name__ == "__main__":
     parser.add_argument("--optimizer_name", type=str, default='Adam', help="Optimizer to use for optimization")
     parser.add_argument("--lr", type=float, default=0.5, help="Learning rate for optimization")
     parser.add_argument("--zero_lr", type=float, default=100, help="Learning rate for zero order optimization")
+    parser.add_argument("--distance_function", type=str, default='cosine', choices=["L1", "L2","cosine"], help="Distance function for gradient matching")
     parser.add_argument("--reg", type=str, default='None', choices=["L1", "L2", "TV", "None"], help="Type of regularization")
     parser.add_argument("--reg_weight", type=float, default=0.0, help="Weight of the regularization term")
     parser.add_argument("--n_seeds", type=int, default=10, help="Number of seeds to try")
@@ -413,7 +417,7 @@ if __name__ == "__main__":
     # exp_path='/scratch/f006pq6/projects/asr-grad-reconstruction/logging/0s-1s/'
     # get name of the ckp file
     cpt_name = os.path.basename(FLAGS.cpt_resume) if FLAGS.cpt_resume is not None else 'None'
-    exp_name = f"batchstart_{FLAGS.batch_start}_batch_end_{FLAGS.batch_end}_init_{FLAGS.init_method}_opt_{FLAGS.optimizer_name}_lr_{FLAGS.lr}_reg_{FLAGS.reg}_regw_{FLAGS.reg_weight}_top-grad-perc_{FLAGS.top_grad_percentage}_cpt_{cpt_name}"
+    exp_name = f"DEV_DS1_batchstart_{FLAGS.batch_start}_batch_end_{FLAGS.batch_end}_init_{FLAGS.init_method}_opt_{FLAGS.optimizer_name}_lr_{FLAGS.lr}_distfunc_{FLAGS.distance_function}_reg_{FLAGS.reg}_regw_{FLAGS.reg_weight}_top-grad-perc_{FLAGS.top_grad_percentage}_cpt_{cpt_name}"
     FLAGS.exp_path=os.path.join(exp_path, exp_name)
 
     main(FLAGS)
