@@ -134,9 +134,6 @@ def first_order_optimization_loop(inputs, x_param, output_sizes, target_sizes,
         gm_weight_distance = grad_distance(dldws[0], dldw_targets[0], FLAGS)
         gm_bias_distance   = grad_distance(dldws[1], dldw_targets[1], FLAGS)
 
-        if i%300==0 and i>1:
-            import ipdb;ipdb.set_trace()
- 
         # regloss = tv_norm(x_param)
         if FLAGS.reg == 'L2':
             regloss = torch.norm(x_param, p=2)

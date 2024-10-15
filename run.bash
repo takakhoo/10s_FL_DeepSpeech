@@ -26,3 +26,5 @@ CUDA_VISIBLE_DEVICES="0" python src/reconstruct_ds1_run_many_sample.py --batch-s
 CUDA_VISIBLE_DEVICES="0" python src/reconstruct_ds1_run_many_sample.py --batch-start 0 --batch-end 100 --batch_min_dur 1000 --batch_max_dur 2000 --lr 0.5 --distance_function cosine+l2 --distance_function_weight 0.9
 CUDA_VISIBLE_DEVICES="1" python src/reconstruct_ds1_run_many_sample.py --batch-start 0 --batch-end 100 --batch_min_dur 1000 --batch_max_dur 2000 --lr 0.5 --distance_function cosine+l2 --distance_function_weight 0.8
 CUDA_VISIBLE_DEVICES="2" python src/reconstruct_ds1_run_many_sample.py --batch-start 0 --batch-end 100 --batch_min_dur 1000 --batch_max_dur 2000 --lr 0.5 --distance_function cosine+l2 --distance_function_weight 0.7
+CUDA_VISIBLE_DEVICES="3" python src/reconstruct_ds1_run_many_sample.py --batch-start 0 --batch-end 100 --batch_min_dur 1000 --batch_max_dur 2000 --lr 0.5 --distance_function cosine+l2 --distance_function_weight 0.6
+CUDA_VISIBLE_DEVICES="4" python src/reconstruct_ds1_run_many_sample.py --batch-start 0 --batch-end 100 --batch_min_dur 1000 --batch_max_dur 2000 --lr 0.5 --distance_function cosine+l2 --distance_function_weight 0.5
