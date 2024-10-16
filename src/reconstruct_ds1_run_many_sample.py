@@ -416,7 +416,7 @@ if __name__ == "__main__":
     # exp_path='/scratch/f006pq6/projects/asr-grad-reconstruction/logging/0s-1s/'
     # get name of the ckp file
     cpt_name = os.path.basename(FLAGS.cpt_resume) if FLAGS.cpt_resume is not None else 'None'
-    exp_name = f"DEV_DS1_batchstart_{FLAGS.batch_start}_batch_end_{FLAGS.batch_end}_init_{FLAGS.init_method}_opt_{FLAGS.optimizer_name}_lr_{FLAGS.lr}_distfunc_{FLAGS.distance_function}_reg_{FLAGS.reg}_regw_{FLAGS.reg_weight}_top-grad-perc_{FLAGS.top_grad_percentage}_cpt_{cpt_name}"
+    exp_name = f"DEV_DS1_batchstart_{FLAGS.batch_start}_batch_end_{FLAGS.batch_end}_init_{FLAGS.init_method}_opt_{FLAGS.optimizer_name}_lr_{FLAGS.lr}_distfunc_{FLAGS.distance_function}__distfuncweight_{FLAGS.distance_function_weight}_reg_{FLAGS.reg}_regw_{FLAGS.reg_weight}_top-grad-perc_{FLAGS.top_grad_percentage}_cpt_{cpt_name}"
     FLAGS.exp_path=os.path.join(exp_path, exp_name)
 
     main(FLAGS)

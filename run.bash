@@ -13,7 +13,8 @@ CUDA_VISIBLE_DEVICES="4" python src/reconstruct_ds1_run_many_sample.py --batch-s
 CUDA_VISIBLE_DEVICES="5" python src/reconstruct_ds1_run_many_sample.py --batch-start 0 --batch-end 100 --batch_min_dur 1000 --batch_max_dur 2000 --lr 0.1
 CUDA_VISIBLE_DEVICES="6" python src/reconstruct_ds1_run_many_sample.py --batch-start 0 --batch-end 100 --batch_min_dur 1000 --batch_max_dur 2000 --lr 0.01
 CUDA_VISIBLE_DEVICES="7" python src/reconstruct_ds1_run_many_sample.py --batch-start 0 --batch-end 100 --batch_min_dur 1000 --batch_max_dur 2000 --lr 0.001
-
+CUDA_VISIBLE_DEVICES="0" python src/reconstruct_ds1_run_many_sample.py --batch-start 0 --batch-end 100 --batch_min_dur 1000 --batch_max_dur 2000 --lr 5.0
+CUDA_VISIBLE_DEVICES="1" python src/reconstruct_ds1_run_many_sample.py --batch-start 0 --batch-end 100 --batch_min_dur 1000 --batch_max_dur 2000 --lr 10.0
 # top grad percentage experiment 100% 90% 80% 70% 60% 50%
 # git checkout a7bd5a0   
 CUDA_VISIBLE_DEVICES="5" python src/reconstruct_ds1_run_many_sample.py --batch-start 0 --batch-end 100 --batch_min_dur 1000 --batch_max_dur 2000 --lr 0.5 --top_grad_percentage 0.2
