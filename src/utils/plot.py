@@ -26,7 +26,7 @@ def plot_mfcc(mfcc_tensor):
     display(plt.gcf())
     plt.close()
 
-def plot_four_graphs(gt_tensor, reconstructed_tensor, loss, loss_grad, loss_reg,epoch, prefix='', FLAGS=None):
+def plot_four_graphs(gt_tensor, reconstructed_tensor, loss, loss_grad, loss_reg,epoch, prefix='', args=None):
     """
     Plot four graphs: ground truth spectrogram, reconstructed spectrogram, 
     difference between the two, and loss over epoch.
@@ -73,7 +73,7 @@ def plot_four_graphs(gt_tensor, reconstructed_tensor, loss, loss_grad, loss_reg,
     # save figure with name that has date time hour min and epoch number
     now = datetime.datetime.now()
     now = now.strftime("%Y-%m-%d-%H-%M")
-    # save is with os join path flags.exp_path
-    fig_save_path = os.path.join(FLAGS.exp_path, 'figures', '{}{}_{}.png'.format(prefix,now, epoch) ) 
+    # save is with os join path args.exp_path
+    fig_save_path = os.path.join(args.exp_path, 'figures', '{}{}_{}.png'.format(prefix,now, epoch) ) 
     plt.savefig(fig_save_path)
     plt.show()

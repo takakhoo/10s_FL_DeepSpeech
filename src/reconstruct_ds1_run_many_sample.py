@@ -405,18 +405,18 @@ if __name__ == "__main__":
     assert FLAGS.batch_size == 1, "Batch size must be 1"
 
     if FLAGS.batch_min_dur == 0 and FLAGS.batch_max_dur == 1000:
-        exp_path='/scratch/f006pq6/projects/asr-grad-reconstruction/logging/0s-1s/'
+        exp_path='/scratch/f006pq6/projects/recon/logging/0s-1s/'
     elif FLAGS.batch_min_dur == 1000 and FLAGS.batch_max_dur == 2000:
-        exp_path='/scratch/f006pq6/projects/asr-grad-reconstruction/logging/1s-2s/'
+        exp_path='/scratch/f006pq6/projects/recon/logging/1s-2s/'
     elif FLAGS.batch_min_dur == 2000 and FLAGS.batch_max_dur == 3000:
-        exp_path='/scratch/f006pq6/projects/asr-grad-reconstruction/logging/2s-3s/'
+        exp_path='/scratch/f006pq6/projects/recon/logging/2s-3s/'
     elif FLAGS.batch_min_dur == 3000 and FLAGS.batch_max_dur == 4000:
-        exp_path='/scratch/f006pq6/projects/asr-grad-reconstruction/logging/3s-4s/'
+        exp_path='/scratch/f006pq6/projects/recon/logging/3s-4s/'
 
-    # exp_path='/scratch/f006pq6/projects/asr-grad-reconstruction/logging/0s-1s/'
+    # exp_path='/scratch/f006pq6/projects/recon/logging/0s-1s/'
     # get name of the ckp file
     cpt_name = os.path.basename(FLAGS.cpt_resume) if FLAGS.cpt_resume is not None else 'None'
-    exp_name = f"DEV_DS1_batchstart_{FLAGS.batch_start}_batch_end_{FLAGS.batch_end}_init_{FLAGS.init_method}_opt_{FLAGS.optimizer_name}_lr_{FLAGS.lr}_distfunc_{FLAGS.distance_function}__distfuncweight_{FLAGS.distance_function_weight}_reg_{FLAGS.reg}_regw_{FLAGS.reg_weight}_top-grad-perc_{FLAGS.top_grad_percentage}_cpt_{cpt_name}"
+    exp_name = f"DEV_DS1_batchstart_{FLAGS.batch_start}_batch_end_{FLAGS.batch_end}_init_{FLAGS.init_method}_opt_{FLAGS.optimizer_name}_lr_{FLAGS.lr}_distfunc_{FLAGS.distance_function}_distfuncweight_{FLAGS.distance_function_weight}_reg_{FLAGS.reg}_regw_{FLAGS.reg_weight}_top-grad-perc_{FLAGS.top_grad_percentage}_cpt_{cpt_name}"
     FLAGS.exp_path=os.path.join(exp_path, exp_name)
 
     main(FLAGS)

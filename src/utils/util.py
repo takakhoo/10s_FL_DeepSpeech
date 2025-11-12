@@ -12,20 +12,20 @@ def tv_norm( x):
 
 
 
-def init_a_point(inputs, FLAGS):
-    if FLAGS.init_method == 'uniform':
+def init_a_point(inputs, args):
+    if args.initialization_method == 'uniform':
         # init x_init varialbe with unifrom [-1,1]
         logging.info('init with uniform')
         x_init = torch.rand_like(inputs) * 2 - 1
-    elif FLAGS.init_method == 'normal':
+    elif args.initialization_method == 'normal':
         # init x_init varialbe with normal distribution
         logging.info('init with normal')
         x_init = torch.randn_like(inputs)
-    elif FLAGS.init_method == 'same':
+    elif args.initialization_method == 'same':
         # init x_init varialbe with same as inputs
         logging.info('init with same') 
         x_init = inputs.clone()
-    elif FLAGS.init_method == 'same_noisy':
+    elif args.initialization_method == 'same_noisy':
         # init x_init varialbe with same as inputs + noise
         logging.info('init with same_noisy')
         x_init = inputs.clone() + torch.randn_like(inputs) * 0.01

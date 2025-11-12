@@ -1,4 +1,4 @@
-name: asr-grad-reconstruction
+name: fl
 channels:
   - pytorch
   - nvidia
@@ -179,4 +179,3 @@ dependencies:
       - threadpoolctl==3.5.0
       - tomli==2.0.1
       - tzdata==2024.1
-prefix: /scratch/f006pq6/softwares/miniconda3/envs/asr-grad-reconstruction

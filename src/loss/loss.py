@@ -1,7 +1,7 @@
 import torch
-def grad_distance(g1, g2, FLAGS):
-    if FLAGS.top_grad_percentage < 1.0 and g1.dim() >=2 : # only do this for 2D or higher
-        top_k = int(FLAGS.top_grad_percentage * g2.numel())
+def grad_distance(g1, g2, args):
+    if args.top_grad_percentage < 1.0 and g1.dim() >=2 : # only do this for 2D or higher
+        top_k = int(args.top_grad_percentage * g2.numel())
         g1 = g1.flatten()
         g2 = g2.flatten()
         # import ipdb;ipdb.set_trace()
@@ -9,23 +9,23 @@ def grad_distance(g1, g2, FLAGS):
         g1 = g1[indices]
         g2 = g2[indices]
 
-    if FLAGS.distance_function.lower() == 'cosine':
+    if args.distance_metric.lower() == 'cosine':
         # use 1-costine similarity
         return 1 - torch.nn.functional.cosine_similarity(g1.reshape(1,-1), g2.reshape(1,-1))
-    elif FLAGS.distance_function.lower() == 'l2':
+    elif args.distance_metric.lower() == 'l2':
         return torch.nn.functional.mse_loss(g1, g2)
-    elif FLAGS.distance_function.lower() == 'l1':
+    elif args.distance_metric.lower() == 'l1':
         return torch.nn.functional.l1_loss(g1, g2)
-    elif FLAGS.distance_function.lower() == 'cosine+l2':
-        return FLAGS.distance_function_weight * (1 - torch.nn.functional.cosine_similarity(g1.reshape(1,-1), g2.reshape(1,-1)) ) +\
-                (1- FLAGS.distance_function_weight) * torch.nn.functional.mse_loss(g1, g2)
+    elif args.distance_metric.lower() == 'cosine+l2':
+        return args.distance_metric_weight * (1 - torch.nn.functional.cosine_similarity(g1.reshape(1,-1), g2.reshape(1,-1)) ) +\
+                (1- args.distance_metric_weight) * torch.nn.functional.mse_loss(g1, g2)
     else:
         raise NotImplementedError
 
 # ------------------------------------------------------------------------------
 # Meta loss
 # ------------------------------------------------------------------------------
-def meta_loss(output, targets, output_sizes, target_sizes, dldw_targets,  params_to_match, loss_func, FLAGS):
+def meta_loss(output, targets, output_sizes, target_sizes, dldw_targets,  params_to_match, loss_func, args):
     loss = loss_func(output, targets)
     dldws = torch.autograd.grad(loss, params_to_match, create_graph=True)
     # loss = ((dldw-dldw_target)**2).mean() #MSE
@@ -33,7 +33,7 @@ def meta_loss(output, targets, output_sizes, target_sizes, dldw_targets,  params
     loss = 0 
     for dldw, dldw_target in zip(dldws, dldw_targets):
         #loss += torch.nn.functional.mse_loss(dldw, dldw_target)
-        loss += grad_distance(dldw, dldw_target, FLAGS)
+        loss += grad_distance(dldw, dldw_target, args)
 
     return loss,dldws
 

@@ -97,22 +97,22 @@ class LibriSampledDataset(Dataset):
 
         return audio, target
 
-def get_dataset_libri_sampled_folder_subset(net,FLAGS):
+def get_dataset_libri_sampled_folder_subset(net,args):
 
     target_transform = Compose([str.lower,
                 net.ALPHABET.get_indices,
                 torch.IntTensor])
     file_path = '/scratch/f006pq6/projects/asr-grad-reconstruction/samples/samples_below_4s_bucket_500_all_minh.txt'
-    # dataset = LibriSampledDataset(file_path, min_length=FLAGS.batch_min_dur, max_length=FLAGS.batch_max_dur, transform=net.transform, target_transform=target_transform)
-    dataset = HDF5SampledDataset(FLAGS.dataset_path, min_length=FLAGS.batch_min_dur, max_length=FLAGS.batch_max_dur, transform=net.transform, target_transform=target_transform)
+    # dataset = LibriSampledDataset(file_path, min_length=args.min_duration_ms, max_length=args.max_duration_ms, transform=net.transform, target_transform=target_transform)
+    dataset = HDF5SampledDataset(args.dataset_path, min_length=args.min_duration_ms, max_length=args.max_duration_ms, transform=net.transform, target_transform=target_transform)
 
-    #get subset of the dataset start from FLAGS.start_idx to FLAGS.end_idx
+    #get subset of the dataset start from args.start_idx to args.end_idx
     #using torch Subset
-    if FLAGS.batch_end == -1 or FLAGS.batch_end > len(dataset): 
-        FLAGS.batch_end = len(dataset)
+    if args.batch_end_idx == -1 or args.batch_end_idx > len(dataset): 
+        args.batch_end_idx = len(dataset)
 
     # import ipdb;ipdb.set_trace()
-    dataset = torch.utils.data.Subset(dataset, range(FLAGS.batch_start, FLAGS.batch_end))
+    dataset = torch.utils.data.Subset(dataset, range(args.batch_start_idx, args.batch_end_idx))
     
 
 
@@ -120,7 +120,7 @@ def get_dataset_libri_sampled_folder_subset(net,FLAGS):
                                          collate_fn=collate_input_sequences,
                                          pin_memory=torch.cuda.is_available(),
                                          num_workers=0,
-                                         batch_size=FLAGS.batch_size,
+                                         batch_size=args.batch_size,
                                          shuffle=False)
     print('number of utterances:', len(dataset))
     print('example shape of input:', dataset[0][0][0].shape)
@@ -128,7 +128,7 @@ def get_dataset_libri_sampled_folder_subset(net,FLAGS):
     print('example target:', dataset[0][1])
     return dataset, loader
 
-def get_dataset_libri_sampled_loader(net,FLAGS):
+def get_dataset_libri_sampled_loader(net,args):
     # dataset_1 = LibriSpeech(root='/scratch/f006pq6/datasets/librispeech/', subsets=['test-clean'], download=True,
     #                       transform=net.transform)
     
@@ -136,13 +136,13 @@ def get_dataset_libri_sampled_loader(net,FLAGS):
                 net.ALPHABET.get_indices,
                 torch.IntTensor])
     file_path = '/scratch/f006pq6/projects/asr-grad-reconstruction/samples/samples_below_4s_bucket_500_all_minh.txt'
-    dataset = LibriSampledDataset(file_path, min_length=FLAGS.batch_min_dur, max_length=FLAGS.batch_max_dur, transform=net.transform, target_transform=target_transform)
+    dataset = LibriSampledDataset(file_path, min_length=args.min_duration_ms, max_length=args.max_duration_ms, transform=net.transform, target_transform=target_transform)
 
     loader = torch.utils.data.DataLoader(dataset,
                                          collate_fn=collate_input_sequences,
                                          pin_memory=torch.cuda.is_available(),
                                          num_workers=0,
-                                         batch_size=FLAGS.batch_size,
+                                         batch_size=args.batch_size,
                                          shuffle=False)
     print('number of utterances:', len(dataset))
     print('example shape of input:', dataset[0][0][0].shape)
