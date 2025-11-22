@@ -85,40 +85,50 @@ def batched_ctc(log_probs: Tensor, targets: Tensor, input_lengths: Tensor, targe
     return out
 
 def batched_ctc_v2(log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, blank=0):
-    '''
-    same as batched_ctc but use different way to calculate alpha next 
-    
-    '''
-    # out = torch.nn.functional.ctc_loss(log_probs, targets, input_lengths, target_lengths)
+    """
+    Batched CTC loss with per-time-step normalization to avoid underflow.
+    Keeps Minh's DS1 formulation intact while remaining stable for long clips.
+    """
     batch_size = targets.size(0)
     max_target_length = targets.size(1)
-    max_input_length  = log_probs.size(0)
+    max_input_length = log_probs.size(0)
+    device = log_probs.device
+
     targets_prime = targets.new_full((batch_size, 2 * max_target_length + 1,), blank)
     targets_prime[:, 1::2] = targets[:, :max_target_length]
+
     log_probs = log_probs.double()
     probs = log_probs.exp()
-    # Initialization
-    alpha = log_probs.new_zeros((batch_size, max_target_length * 2 + 1, ))
+
+    alpha = log_probs.new_zeros((batch_size, max_target_length * 2 + 1,))
     alpha[:, 0] = probs[0, :, blank]
     alpha[:, 1] = probs[0].gather(1, targets_prime[:, 1].unsqueeze(-1)).squeeze(-1)
+
     mask_third = targets_prime[:, :-2] != targets_prime[:, 2:]
     zero_tensor = torch.zeros_like(alpha[:, :-2])
+    log_scales = torch.zeros(batch_size, dtype=torch.float64, device=device)
+
+    def normalize(curr_alpha, curr_log_scales):
+        scale = curr_alpha.sum(dim=1, keepdim=True).clamp_min(1e-300)
+        curr_alpha = curr_alpha / scale
+        curr_log_scales = curr_log_scales + torch.log(scale.squeeze(1))
+        return curr_alpha, curr_log_scales
+
+    alpha, log_scales = normalize(alpha, log_scales)
+
     for t in range(1, max_input_length):
-        # init alpha_next to be zero like alpha
         alpha_next = alpha.clone()
-        alpha_next[:, 2:] += torch.where(mask_third, alpha[:, :-2],  zero_tensor) + alpha[:, 1:-1] 
-        alpha_next[:, 1]  += alpha[:, 0] 
-        # alpha_next[:, 0]  = alpha[:, 0]
-        
+        alpha_next[:, 2:] = alpha[:, 2:] + alpha[:, 1:-1] + torch.where(mask_third, alpha[:, :-2], zero_tensor)
+        alpha_next[:, 1] = alpha[:, 1] + alpha[:, 0]
+        alpha_next[:, 0] = alpha[:, 0]
+
         alpha = probs[t].gather(1, targets_prime) * alpha_next
+        alpha, log_scales = normalize(alpha, log_scales)
 
     tg = target_lengths.unsqueeze(1)
-
-    out = -(alpha.gather(1, tg*2-1) + alpha.gather(1, tg*2)).log().squeeze()
-    # out = -alpha[:, -2:].sum(-1).log()
-    out = (out / target_lengths).mean()
-    #ctx.save_for_backward(log_probs, targets, input_lengths, target_lengths, alpha)
-    
+    final_prob = (alpha.gather(1, tg * 2 - 1) + alpha.gather(1, tg * 2)).clamp_min(1e-300).squeeze()
+    out = -(torch.log(final_prob) + log_scales)
+    out = (out / target_lengths.to(out.dtype)).mean()
     return out
 
 def batched_ctc_logspace(log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, blank=0):
@@ -159,50 +169,54 @@ def batched_ctc_logspace(log_probs: Tensor, targets: Tensor, input_lengths: Tens
     return out
 
 def batched_ctc_logspace_scale(log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, blank=0):
-
-    # out = torch.nn.functional.ctc_loss(log_probs, targets, input_lengths, target_lengths)
+    """
+    Stable CTC loss that keeps everything in log-space and avoids
+    multiplying probabilities directly. Matches the DS1 formulation
+    but prevents underflow for long utterances.
+    """
     device = log_probs.device
     batch_size = targets.size(0)
     max_target_length = targets.size(1)
-    max_input_length  = log_probs.size(0)
+    max_input_length = log_probs.size(0)
+
+    log_probs = log_probs.double()
+
     targets_prime = targets.new_full((batch_size, 2 * max_target_length + 1,), blank)
     targets_prime[:, 1::2] = targets[:, :max_target_length]
-    # log_probs = log_probs.double()
-    # probs = log_probs.exp()
-    # Initialization
-    # alpha = log_probs.new_zeros((batch_size, max_target_length * 2 + 1, ))
-    alpha = torch.full(  (batch_size, max_target_length * 2 + 1, )     , float('-inf'),dtype=torch.float64, device=device)
-    # alpha = torch.full(  (batch_size, max_target_length * 2 + 1, )     , float('-inf'))
+
+    alpha = torch.full((batch_size, 2 * max_target_length + 1,), float('-inf'),
+                       dtype=torch.float64, device=device)
     alpha[:, 0] = log_probs[0, :, blank]
     alpha[:, 1] = log_probs[0].gather(1, targets_prime[:, 1].unsqueeze(-1)).squeeze(-1)
     mask_third = targets_prime[:, :-2] != targets_prime[:, 2:]
-    # alpha_next = torch.zeros_like(alpha)
-    
-    alpha_next = torch.zeros_like(alpha)
-    inf_tensor = torch.full_like(alpha[:, :-2], float('-inf'))
+    neg_inf = torch.full_like(alpha[:, :-2], float('-inf'))
+
     for t in range(1, max_input_length):
+        stay = alpha[:, 2:]
+        prev = alpha[:, 1:-1]
+        skip = torch.where(mask_third, alpha[:, :-2], neg_inf)
 
-        amax = alpha.max()
-        alpha_next[:, 2:] =  ( torch.exp(alpha[:, 2:]-amax) + 
-            torch.exp(torch.where(mask_third, alpha[:, :-2], inf_tensor)- amax) +
-            torch.exp(alpha[:, 1:-1]-amax) )
-        
+        merged = torch.stack((stay, prev, skip), dim=0)
+        next_rest = torch.logsumexp(merged, dim=0)
+        next_state = torch.cat(
+            (
+                alpha[:, 0:1],
+                torch.logaddexp(alpha[:, 1:2], alpha[:, 0:1]),
+                next_rest
+            ),
+            dim=1
+        )
 
-        alpha_next[:, 1] = torch.exp(alpha[:, 1]-amax) + torch.exp(alpha[:, 0]-amax)
-        alpha_next[:, 0] = torch.exp(alpha[:, 0]-amax)
+        alpha = log_probs[t].gather(1, targets_prime) + next_state
 
-        # alpha = torch.log(torch.exp(log_probs[t].gather(1, targets_prime)) * torch.exp(alpha_next))
-        alpha = log_probs[t].gather(1, targets_prime) + torch.log(alpha_next) + amax
-        # print(alpha_next.exp())
-        # print(alpha.exp())
-        # print('='*20)
-     
     tg = target_lengths.unsqueeze(1)
-
-    out = -(alpha.gather(1, tg*2-1).exp() + alpha.gather(1, tg*2).exp() ).log().squeeze()
-    # out = -alpha[:, -2:].sum(-1).log()
-    out = (out / target_lengths).mean()
-    #ctx.save_for_backward(log_probs, targets, input_lengths, target_lengths, alpha)
-    
+    last = torch.stack(
+        (
+            alpha.gather(1, tg * 2 - 1),
+            alpha.gather(1, tg * 2)
+        ),
+        dim=0
+    )
+    out = -torch.logsumexp(last, dim=0).squeeze()
+    out = (out / target_lengths.to(out.dtype)).mean()
     return out
-

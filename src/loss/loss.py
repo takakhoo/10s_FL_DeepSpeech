@@ -50,4 +50,3 @@ def tv_norm( x):
     tv = torch.sum(dx) + torch.sum(dy)
     # Scale by the strength parameter
     return tv
-

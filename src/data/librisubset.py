@@ -97,14 +97,14 @@ class LibriSampledDataset(Dataset):
 
         return audio, target
 
-def get_dataset_libri_sampled_folder_subset(net,args):
+def get_dataset_libri_sampled_folder_subset(model,args):
 
     target_transform = Compose([str.lower,
-                net.ALPHABET.get_indices,
+                model.ALPHABET.get_indices,
                 torch.IntTensor])
     file_path = '/scratch/f006pq6/projects/asr-grad-reconstruction/samples/samples_below_4s_bucket_500_all_minh.txt'
-    # dataset = LibriSampledDataset(file_path, min_length=args.min_duration_ms, max_length=args.max_duration_ms, transform=net.transform, target_transform=target_transform)
-    dataset = HDF5SampledDataset(args.dataset_path, min_length=args.min_duration_ms, max_length=args.max_duration_ms, transform=net.transform, target_transform=target_transform)
+    # dataset = LibriSampledDataset(file_path, min_length=args.min_duration_ms, max_length=args.max_duration_ms, transform=model.transform, target_transform=target_transform)
+    dataset = HDF5SampledDataset(args.dataset_path, min_length=args.min_duration_ms, max_length=args.max_duration_ms, transform=model.transform, target_transform=target_transform)
 
     #get subset of the dataset start from args.start_idx to args.end_idx
     #using torch Subset
@@ -128,15 +128,15 @@ def get_dataset_libri_sampled_folder_subset(net,args):
     print('example target:', dataset[0][1])
     return dataset, loader
 
-def get_dataset_libri_sampled_loader(net,args):
+def get_dataset_libri_sampled_loader(model,args):
     # dataset_1 = LibriSpeech(root='/scratch/f006pq6/datasets/librispeech/', subsets=['test-clean'], download=True,
-    #                       transform=net.transform)
+    #                       transform=model.transform)
     
     target_transform = Compose([str.lower,
-                net.ALPHABET.get_indices,
+                model.ALPHABET.get_indices,
                 torch.IntTensor])
     file_path = '/scratch/f006pq6/projects/asr-grad-reconstruction/samples/samples_below_4s_bucket_500_all_minh.txt'
-    dataset = LibriSampledDataset(file_path, min_length=args.min_duration_ms, max_length=args.max_duration_ms, transform=net.transform, target_transform=target_transform)
+    dataset = LibriSampledDataset(file_path, min_length=args.min_duration_ms, max_length=args.max_duration_ms, transform=model.transform, target_transform=target_transform)
 
     loader = torch.utils.data.DataLoader(dataset,
                                          collate_fn=collate_input_sequences,

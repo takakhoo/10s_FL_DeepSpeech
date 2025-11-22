@@ -1,4 +1,19 @@
-# this is the main script to reconstruct data point for DS2 arch
+# This is the main script to reconstruct data points for DeepSpeech architectures
+# Supports both DeepSpeech1 (DS1) and DeepSpeech2 (DS2) architectures
+#
+# Key differences:
+#   - DS1: Uses MFCC features (26 coefficients) with context frames (default 6)
+#          Input dim = n_mfcc * (2*context_frames + 1) = 26 * 13 = 338
+#   - DS2: Uses Log-Magnitude STFT features (spectrogram)
+#          Input dim = sample_rate * winlen / 2 + 1 = 16000 * 0.032 / 2 + 1 = 257
+#
+# Example usage:
+#   For DeepSpeech2:
+#     python src/main.py --model_name DeepSpeech2 --batch_start_idx 0 --batch_end_idx 1 --min_duration_ms 1000 --max_duration_ms 2000
+#   
+#   For DeepSpeech1:
+#     python src/main.py --model_name DeepSpeech1 --batch_start_idx 0 --batch_end_idx 1 --min_duration_ms 1000 --max_duration_ms 2000 --context_frames 6 --dropout_prob 0.0
+#
 import argparse
 from ast import arg
 import logging
@@ -14,8 +29,13 @@ import torch.optim as optim
 from torchvision.transforms import Compose
 
 # Configure basic logging (will be updated with file handler in main)
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s: %(message)s')
-logging.getLogger('matplotlib').setLevel(logging.WARNING)
+# Only show logs from this file by using a named logger
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s: %(message)s')
+# logging.getLogger('matplotlib').setLevel(logging.WARNING)
+
+# Create a logger for this module
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 # Add module paths
 sys.path.insert(0, os.path.abspath('../modules/deepspeech/src'))
@@ -25,191 +45,23 @@ sys.path.insert(0, os.path.abspath('../src/'))
 from ctc.ctc_loss_imp import *
 from data.librisubset import *
 from loss.loss import *
+from models.ds1 import DeepSpeech1WithContextFrames
 from models.ds2 import DeepSpeech2
+from optimize import zero_order_optimization_loop, first_order_optimization_loop, first_order_optimization_grid_loop, optimization_loop
 from utils.plot import *
 from utils.util import *
 
-def get_device_net(args, use_relu):
+# Implements the model to use for the reconstruction
+def get_model(args, use_relu):
     device = 'cuda:0'
-    net = DeepSpeech2(winlen=0.032, winstep=0.02).to(device)
-    return device, net
-
-def zero_order_optimization_loop(inputs, x_param, output_sizes, target_size,
-                                 net,
-                                    dldw_targets , params_to_match, targets, prefix, args):
-    device = inputs.device
-    net.eval()
-
-    loss_func = lambda x,y :batched_ctc_v2(x, y, output_sizes, target_size)
-    
-
-    i = 0 
-    stop_condition = False
-
-    def get_meta_loss(x_param):
-        out = net(x_param)
-        out = out.log_softmax(-1)
-        mloss, dldws = meta_loss(out, targets, None, None, dldw_targets, params_to_match, loss_func, args)
-        return mloss, dldws
-    
-    tolerance = 10
-    step_size = args.zero_order_lr
-
-    loss_history = []
-    loss_gm_history = []
-    loss_reg_history = []
-
-    while i < args.zero_max_iterations and not stop_condition:
-        # random 16 directions in the space of x_param
-        directions = torch.randn(8, *x_param.shape).to(device)
-        # normalize direction so that they have unit length
-        shape = directions.shape
-        directions = directions.reshape(8,-1)
-        directions = torch.functional.F.normalize(directions, dim=1)
-        directions = directions.reshape(shape)
-        # create a list to store the loss for each direction
-        losses = []
-        current_loss, _ = get_meta_loss(x_param)
-        # logging.info('Current loss: {}'.format(current_loss.item()))
-
-        for d in directions:
-            x_param_new = x_param + step_size * d
-            mloss, _ = get_meta_loss(x_param_new)
-            losses.append(mloss.item())
-
-        # find the best direction by averaging direction that reduce loss
-        # best_direction = directions[torch.tensor(losses) < current_loss.item()]
-        # find the best direction by the smallest loss, argmin
-        best_direction = directions[np.argmin(losses)]
-
-        if  np.min(losses) < current_loss.item():
-            # best_direction = best_direction.mean(dim=0)
-            x_param = x_param + step_size * best_direction
-            tolerance = 10
-            step_size = args.zero_order_lr
-        else:  
-            logging.info('No direction found, reducing step size, tolerance: {}, {}'.format(step_size,tolerance))
-            tolerance -=1
-            step_size *= 0.5
-            if tolerance < 0:
-                stop_condition = True
-
-        mae = torch.mean(torch.abs(x_param - inputs))
-        logging.info('iter {}  loss: {}, step size: {}, mae: {}'.format(i, np.min(losses), step_size, mae.item()))
-
-
-        loss_history.append(current_loss.item())    
-        loss_gm_history.append(0)
-        loss_reg_history.append(0)
-        if i % 20 == 0:
-            plot_four_graphs(inputs.detach(), x_param.detach(), loss_history, loss_gm_history,loss_reg_history ,i, prefix=prefix, args=args)
-            pass
- 
-        i += 1
-
-    return x_param
-
-def first_order_optimization_loop(inputs, x_param, output_sizes, target_sizes,
-                                  optimizer, scheduler, net,
-                                  dldw_targets , params_to_match, targets,prefix,  args):
-
-    net.train()
-    loss_func = lambda x,y :ctc_loss_imp(x, y, output_sizes, target_sizes,reduction='mean')
-
-    i=0
-    loss_history = []
-    loss_gm_history = []
-    loss_reg_history = []
-    stop_condition = False
-    while i < args.max_iterations and not stop_condition:
-        # x_param_full= torch.concat([x_param, x_pad], dim=2)
-        out = net(x_param) # 1 176 29
-        out = out.log_softmax(-1)
-        # mloss, dldw_f = meta_loss(output, targets, output_sizes, target_sizes, dldw_target,  weight_param)
-        mloss, dldws = meta_loss(out, targets, None, None, dldw_targets,  params_to_match, loss_func, args)
-        gm_weight_distance = grad_distance(dldws[0], dldw_targets[0], args)
-        gm_bias_distance   =  0.0 #grad_distance(dldws[1], dldw_targets[1], args)
-
-        # regloss = tv_norm(x_param)
-        if args.regularization == 'L2':
-            regloss = torch.norm(x_param, p=2)
-        elif args.regularization == 'L1':
-            pass
-        elif args.regularization == 'TV':
-            # need to make x_param from [n_frame, batch size, n_features] to [batch size, 1, n_features, n_frame]
-            regloss = tv_norm(x_param.permute(1,0,2).unsqueeze(1))
-        else:
-            regloss = torch.tensor(0.0)
-       
-        loss = (1-args.reg_weight)* mloss + args.reg_weight * regloss
-
-
-
-        optimizer.zero_grad()
-        loss.backward()
-        grad = x_param.grad.data
-
-        # torch.nn.utils.clip_grad_norm_(x_param, 1.0)
-        optimizer.step()
-        scheduler.step()
-
-
-        mae = torch.mean(torch.abs(x_param - inputs))
-
-        loss_history.append(loss.item())
-        loss_gm_history.append(mloss.item() )
-        loss_reg_history.append(regloss.item() )
-
-        if i % 10 == 0:
-            logging.info('Iter, Loss (A-G-Gw-Gb-R), Gradient Norm, Learning Rate, MAE: {:4d}, {:.8f}, {:.4f}, {:.4f}, {:.4f}, {:.4f}, {:.4f}, {:.4f}, {:.4f}'\
-                        .format(i, loss.item(), mloss.item(),  gm_weight_distance.item(), gm_bias_distance, regloss.item()
-            , grad.norm().item(), optimizer.param_groups[0]["lr"], mae.item()))
-            # scheduler.step(mloss.item())
-
-        if i % 100 == 0:
-            plot_four_graphs(inputs.detach(), x_param.detach(), loss_history, loss_gm_history,loss_reg_history ,i,prefix=prefix, args=args)
-            pass
-            
-        
-        i+=1
-        # stet stop condition true if loss not decrease in last 100 iteration
-        if i>100 and loss_history[-1] > min(loss_history[-100:]):
-            stop_condition = True
-        else:
-            stop_condition
-    return x_param
-
-
-# ---------------------------------------------------------------------------- #
-#                      create a optimization loop function                     #
-# ---------------------------------------------------------------------------- #
-def optimization_loop(inputs, x_param, output_sizes, target_sizes,
-                       optimizer, scheduler, net, 
-                       dldw_targets , params_to_match, targets,prefix='',  args=None):
-
-    device = inputs.device
-
-    # loss_func = lambda x,y :ctc_loss_imp(x, y, output_sizes, target_sizes,reduction='mean')
-
-    if not os.path.exists(os.path.join(args.exp_path, prefix+'_x_param_first_order.pt')) or not args.resume_from_first_order:
-        logging.info('Running first order optimization loop')
-        x_param = first_order_optimization_loop(inputs, x_param, output_sizes, target_sizes, optimizer, scheduler, net, dldw_targets, params_to_match, targets,prefix+'_firstorder', args) 
-        torch.save(x_param.detach().cpu(), os.path.join(args.exp_path, prefix+'_x_param_first_order.pt'))
-        logging.info('x_param_first_order.pt saved')
+    if args.model_name.lower() == 'deepspeech2' or args.model_name.lower() == 'ds2':
+        model = DeepSpeech2(winlen=0.032, winstep=0.02).to(device)
+    elif args.model_name.lower() == 'deepspeech1' or args.model_name.lower() == 'ds1':
+        model = DeepSpeech1WithContextFrames(n_context=args.context_frames, drop_prob=args.dropout_prob, use_relu=use_relu).to(device)
     else:
-        x_param = torch.load(os.path.join(args.exp_path, prefix+'_x_param_first_order.pt')).to(device)
-        logging.info('x_param_first_order.pt loaded')
+        raise ValueError(f"Unknown model name: {args.model_name}. Use 'DeepSpeech1'/'ds1' or 'DeepSpeech2'/'ds2'")
+    return device, model
 
-    if args.use_zero_order_optimization:
-        logging.info('Running zero order optimization loop')
-        x_param = zero_order_optimization_loop(inputs, x_param, output_sizes, target_sizes, net, dldw_targets, params_to_match, targets,prefix+'_zeroorder',args)
-
-
-    return x_param
-
-# ---------------------------------------------------------------------------- #
-#                 Reconstruct all datapoint in a torch dataset                 #
-# ---------------------------------------------------------------------------- #
 def reconstruct_dataset(network, device, dataloader, args):
     torch.manual_seed(0)
 
@@ -218,16 +70,17 @@ def reconstruct_dataset(network, device, dataloader, args):
 
 
         # batch = A tuple of `((batch_x, batch_out_lens), batch_y)` where:
-        logging.info('#'*20)
-        logging.info('Processing batch {}/{}'.format(i, len(dataloader)))
+        logger.info('#'*20)
+        logger.info('Processing batch {}/{}'.format(i, len(dataloader)))
 
         inputs ,input_sizes = batch[0]
-        logging.info('inputs mean and std: {}, {}'.format(inputs.mean(), inputs.std()))
+        logger.info('inputs shape: {} (time_steps, batch, features)'.format(inputs.shape))
+        logger.info('inputs mean and std: {:.4f}, {:.4f}'.format(inputs.mean(), inputs.std()))
         # input_sizes is tensor list of inputs.shape[1] elements with value inputs.shape[0]
 
         targets = batch[1]
         text = ''.join(network.ALPHABET.get_symbols(targets[0].tolist()))
-        logging.info('TEXT: {}'.format(text))
+        logger.info('TEXT: {}'.format(text))
         target_sizes = torch.Tensor([len(t) for t in targets]).int()
 
         #target is list of tensor with different length, pad it to the same length in a tensor
@@ -245,27 +98,40 @@ def reconstruct_dataset(network, device, dataloader, args):
         out = network(inputs)
 
 
-        # params_to_match = [network.network.fc.module[1].weight, network.network.out.module[0].bias]
-        params_to_match = [network.network.fc.module[1].weight] # deep speech 2 doesnt use bias in last FC
+        # Select params_to_match based on model architecture
+        # DeepSpeech2 uses only weight in last FC (no bias)
+        # DeepSpeech1 uses both weight and bias in output layer
+        if args.model_name.lower() == 'deepspeech2' or args.model_name.lower() == 'ds2':
+            params_to_match = [network.network.fc.module[0].weight] # deep speech 2 doesnt use bias in last FC
+        elif args.model_name.lower() == 'deepspeech1' or args.model_name.lower() == 'ds1':
+            params_to_match = [network.network.out.module[0].weight, network.network.out.module[0].bias]
+        else:
+            raise ValueError(f"Unknown model name: {args.model_name}")
+            
         output_sizes = (torch.ones(out.shape[1]) * out.shape[0]).int()
         out =  out.log_softmax(-1)
 
-        loss_func = lambda x,y : batched_ctc_v2(x, y, output_sizes, target_sizes)
+        # Use PyTorch's native CTCLoss (log-space + zero_infinity) for numerical
+        # stability on both short and long utterances.
+        ctc_loss_fn = torch.nn.CTCLoss(blank=0, reduction='mean', zero_infinity=True)
+        def loss_func(x, y):
+            val = ctc_loss_fn(x, y, output_sizes, target_sizes)
+            return torch.nan_to_num(val, nan=0.0, posinf=1e6, neginf=-1e6)
 
         loss = loss_func(out, targets)
         # loss_func_lib   = torch.nn.CTCLoss()
         # loss_lib = loss_func_lib(out.cpu(), targets.cpu(), output_sizes.cpu(), target_sizes.cpu())
 
-        logging.debug('loss: {}'.format(loss.item()))
+        logger.debug('loss: {}'.format(loss.item()))
         dldw_targets = torch.autograd.grad(loss, params_to_match)
 
         ## zero out small values keep 10% largest dldw_target
-        # logging.info('zero out small values keep 10% largest dldw_target')
+        # logger.info('zero out small values keep 10% largest dldw_target')
         # dldw_target = dldw_target * (dldw_target.abs() > dldw_target.abs().topk(int(0.1*dldw_target.numel()))[0][-1])
         for ip, p in enumerate(params_to_match):
             p.requires_grad = True
-            logging.debug('matching {}. params with shape {} and norm {} first ten {}'.format(ip, p.shape, p.norm(), p.flatten()[:10]))
-            logging.debug('                    gradient norm {}'.format(dldw_targets[ip].norm()))
+            logger.debug('matching {}. params with shape {} and norm {} first ten {}'.format(ip, p.shape, p.norm(), p.flatten()[:10]))
+            logger.debug('                    gradient norm {}'.format(dldw_targets[ip].norm()))
 
 
         x_init =  init_a_point(inputs, args)
@@ -285,13 +151,25 @@ def reconstruct_dataset(network, device, dataloader, args):
 
 
         # suggest an experiment name base on datapoint index, optimizer name,  learning rate, regularizer, regularizer weight
-        logging.info('Experiment Name: {}'.format(os.path.basename(args.exp_path)))
+        logger.info('Experiment Name: {}'.format(os.path.basename(args.exp_path)))
 
         # timing the optimization loop
         start_time = time.time()
-        x_param = optimization_loop(inputs, x_param, output_sizes, target_sizes,
-                        optimizer, scheduler, network,
-                        dldw_targets = dldw_targets, params_to_match =  params_to_match, targets = targets, prefix=f'sampleidx_{i}', args=args)
+        
+        # Choose between grid-based or vanilla optimization
+        if args.use_grid_optimization:
+            logger.info(f'Using grid-based optimization with grid_size={args.grid_size}, overlap={args.grid_overlap}')
+            x_param = first_order_optimization_grid_loop(
+                inputs, x_param, output_sizes, target_sizes,
+                optimizer, scheduler, network,
+                dldw_targets=dldw_targets, params_to_match=params_to_match, 
+                targets=targets, prefix=f'sampleidx_{i}_grid', args=args,
+                grid_size=args.grid_size, overlap=args.grid_overlap)
+        else:
+            x_param = optimization_loop(inputs, x_param, output_sizes, target_sizes,
+                            optimizer, scheduler, network,
+                            dldw_targets = dldw_targets, params_to_match =  params_to_match, targets = targets, prefix=f'sampleidx_{i}', args=args)
+        
         end_time = time.time()
                         
         save_path = os.path.join(args.exp_path, f'sampleidx_{i}_' + 'x_param_last.pt'.format(i))
@@ -332,29 +210,44 @@ def main(args):
     root_logger = logging.getLogger()
     root_logger.addHandler(file_handler)
     
-    logging.info('='*80)
-    logging.info('Starting new experiment run')
-    logging.info('='*80)
+    # Also add file handler to our module logger
+    logger.addHandler(file_handler)
+    
+    logger.info('='*80)
+    logger.info('Starting new experiment run')
+    logger.info('='*80)
     
     # Log all arguments
-    logging.info('Experiment configuration:')
+    logger.info('Experiment configuration:')
     for key, value in args.__dict__.items():
-        logging.info('  {}: {}'.format(key, value))
-    logging.info('-'*80)
+        logger.info('  {}: {}'.format(key, value))
+    logger.info('-'*80)
     
     # Change all print statements to logging statements
-    logging.info('Optimizer: {}'.format(args.optimizer))
-    logging.info('Learning rate: {}'.format(args.learning_rate))
-    logging.info('Regularization: {}'.format(args.regularization))
-    logging.info('Regularization weight: {}'.format(args.reg_weight))
-    logging.info('Number of iterations: {}'.format(args.max_iterations))
-    logging.info('exp_path: {}'.format(args.exp_path))
-    logging.info('Log file: {}'.format(log_file))
+    logger.info('Optimizer: {}'.format(args.optimizer))
+    logger.info('Learning rate: {}'.format(args.learning_rate))
+    logger.info('Regularization: {}'.format(args.regularization))
+    logger.info('Regularization weight: {}'.format(args.reg_weight))
+    logger.info('Number of iterations: {}'.format(args.max_iterations))
+    logger.info('exp_path: {}'.format(args.exp_path))
+    logger.info('Log file: {}'.format(log_file))
 
-    # net & devices
-    device, net = get_device_net(args, use_relu=False)
-    logging.info('Device: {}'.format(device))
-    logging.info('Network: {}'.format((net.__class__.__name__)))
+    # model & devices
+    device, model = get_model(args, use_relu=False)
+    logger.info('Device: {}'.format(device))
+    logger.info('Network: {}'.format((model.__class__.__name__)))
+    
+    # Log preprocessing information based on model type
+    if args.model_name.lower() in ['deepspeech1', 'ds1']:
+        logger.info('Preprocessing: MFCC features (n_mfcc={}, context_frames={})'.format(
+            model._n_mfcc, model._n_context))
+        logger.info('Input feature dimension: {} (MFCC coefficients * (2*context+1))'.format(
+            model._n_mfcc * (2 * model._n_context + 1)))
+    elif args.model_name.lower() in ['deepspeech2', 'ds2']:
+        n_features = int((model._sample_rate * model._winlen) // 2 + 1)
+        logger.info('Preprocessing: Log-Magnitude STFT (winlen={}, winstep={})'.format(
+            model._winlen, model._winstep))
+        logger.info('Input feature dimension: {} (STFT frequency bins)'.format(n_features))
 
     if args.checkpoint_path is not None:
         state_dict = torch.load(args.checkpoint_path)['network']
@@ -362,22 +255,22 @@ def main(args):
         for k, v in state_dict.items():
             new_key = 'network.' + k  # Add 'network.' prefix
             new_state_dict[new_key] = v
-        net.load_state_dict(new_state_dict)
-        logging.info('Checkpoint loaded from {}'.format(args.checkpoint_path))
+        model.load_state_dict(new_state_dict)
+        logger.info('Checkpoint loaded from {}'.format(args.checkpoint_path))
     else:
         # loging random init weight
-        logging.info('Random init weight')
+        logger.info('Random init weight')
 
     # dataset & dataloader
-    dataset, loader = get_dataset_libri_sampled_folder_subset(net, args)
+    dataset, loader = get_dataset_libri_sampled_folder_subset(model, args)
 
     # run reconstruct
-    reconstruct_dataset(net, device, loader, args)
+    reconstruct_dataset(model, device, loader, args)
     
     # Log completion
-    logging.info('='*80)
-    logging.info('Experiment completed successfully')
-    logging.info('='*80)
+    logger.info('='*80)
+    logger.info('Experiment completed successfully')
+    logger.info('='*80)
 
 
 def pretty_print_config(args):
@@ -386,10 +279,17 @@ def pretty_print_config(args):
     
 def parse_args():
     '''
-     example run to reconstruct data point index 0 with lr 0.001, distance cosine, reg weight 0, min duration 1sec max 2 sec.  otpimizer Adam , none regularizer, 2000, 100% top gradient
-     python src/main.py --batch_start_idx 0 --batch_end_idx 1 --learning_rate 0.001 \
-         --distance_metric cosine --reg_weight 0.0 --min_duration_ms 1000 --max_duration_ms 2000 --optimizer Adam --regularization None --max_iterations 2000 --top_grad_percentage 1.0
-         
+    Example runs:
+    
+    For DeepSpeech2 (default):
+        python src/main.py --model_name DeepSpeech2 --batch_start_idx 0 --batch_end_idx 1 --min_duration_ms 1000 --max_duration_ms 2000
+    
+    For DeepSpeech1:
+        python src/main.py --model_name DeepSpeech1 --batch_start_idx 0 --batch_end_idx 1 --min_duration_ms 1000 --max_duration_ms 2000 --context_frames 6 --dropout_prob 0.0
+    
+    With checkpoint:
+        python src/main.py --model_name ds2 --batch_start_idx 0 --batch_end_idx 1 --min_duration_ms 1000 --max_duration_ms 2000 --checkpoint_path /path/to/checkpoint.pt
+        
     '''
     
     parser = argparse.ArgumentParser(description="Reconstruct a data point with specified parameters.")
@@ -406,8 +306,9 @@ def parse_args():
     parser.add_argument("--batch_size"           , type=int  , default=1         , help="Batch size")
  
     # model params
-    parser.add_argument("--dropout_prob"         , type=float, default=0.0       , help="Dropout probability")
-    parser.add_argument("--context_frames"       , type=int  , default=6         , help="Number of context frames")
+    parser.add_argument("--model_name"            , type=str  , default='DeepSpeech2'    , choices=['DeepSpeech1', 'ds1', 'DeepSpeech2', 'ds2'], help="Model architecture to use: 'DeepSpeech1'/'ds1' or 'DeepSpeech2'/'ds2'")
+    parser.add_argument("--dropout_prob"         , type=float, default=0.0       , help="Dropout probability (for DeepSpeech1)")
+    parser.add_argument("--context_frames"       , type=int  , default=6         , help="Number of context frames (for DeepSpeech1)")
 
     # optimization params
     parser.add_argument("--resume_from_first_order", action='store_true', help="Whether to resume from first order optimization checkpoint", default=False)
@@ -421,32 +322,47 @@ def parse_args():
     parser.add_argument("--distance_metric"      , type=str  , default='cosine'  , help="Distance metric for gradient matching")
     parser.add_argument("--distance_metric_weight", type=float, default=0.5      , help="Weight for combining distance metrics (used in cosine+l2)")
     parser.add_argument("--initialization_method", type=str  , default='uniform' , help="Method for initializing input reconstruction")
+    parser.add_argument("--patience"             , type=int  , default=1000       , help="Patience for early stopping based on loss improvement")
 
 
     parser.add_argument("--use_zero_order_optimization", action='store_true', help="Whether to use zero-order optimization after first-order optimization", default=False)
     parser.add_argument("--zero_order_lr"        , type=float, default=100       , help="Learning rate for zero-order optimization")
     parser.add_argument("--zero_max_iterations"  , type=int  , default=200       , help="Maximum iterations for zero-order optimization")
 
+    # Grid optimization params
+    parser.add_argument("--use_grid_optimization", action='store_true', help="Whether to use grid-based optimization instead of vanilla", default=False)
+    parser.add_argument("--grid_size"            , type=int  , default=100       , help="Size of each grid segment (in frames)")
+    parser.add_argument("--grid_overlap"         , type=int  , default=50        , help="Number of overlapping frames between adjacent grids")
+
     args = parser.parse_args()
 
     assert args.batch_size == 1, "Batch size must be 1"
     return args
 
+def _format_duration_label(ms: int) -> str:
+    """
+    Convert millisecond boundaries into readable tokens for experiment folders.
+    Defaults to seconds when possible (e.g., 3000 -> '3s') and otherwise keeps
+    millisecond resolution (e.g., 1500 -> '1500ms').
+    """
+    if ms % 1000 == 0:
+        return f"{ms // 1000}s"
+    return f"{ms}ms"
+
+
 def set_up_dir(args):
-    if args.min_duration_ms == 0 and args.max_duration_ms == 1000:
-        exp_path='logging/0s-1s/'
-    elif args.min_duration_ms == 1000 and args.max_duration_ms == 2000:
-        exp_path='logging/1s-2s/'
-    elif args.min_duration_ms == 2000 and args.max_duration_ms == 3000:
-        exp_path='logging/2s-3s/'
-    elif args.min_duration_ms == 3000 and args.max_duration_ms == 4000:
-        exp_path='logging/3s-4s/'
+    duration_dir = f"{_format_duration_label(args.min_duration_ms)}-{_format_duration_label(args.max_duration_ms)}"
+    exp_path = os.path.join('logging', duration_dir)
     
+    # Normalize model name for experiment path
+    model_short = 'DS1' if args.model_name.lower() in ['deepspeech1', 'ds1'] else 'DS2'
+
     cpt_name = os.path.basename(args.checkpoint_path) if args.checkpoint_path is not None else 'None'
-    exp_name = f"DS2_batchstart_{args.batch_start_idx}_batch_end_{args.batch_end_idx}_init_{args.initialization_method}_opt_{args.optimizer}_lr_{args.learning_rate}_reg_{args.regularization}_regw_{args.reg_weight}_top-grad-perc_{args.top_grad_percentage}_cpt_{cpt_name}"
+    exp_name = f"{model_short}_batchstart_{args.batch_start_idx}_batch_end_{args.batch_end_idx}_init_{args.initialization_method}_opt_{args.optimizer}_lr_{args.learning_rate}_reg_{args.regularization}_regw_{args.reg_weight}_top-grad-perc_{args.top_grad_percentage}_cpt_{cpt_name}"
     args.exp_path=os.path.join(exp_path, exp_name)
     return args
-
+ 
+ 
 if __name__ == "__main__":
     # args & dir
     args = parse_args()

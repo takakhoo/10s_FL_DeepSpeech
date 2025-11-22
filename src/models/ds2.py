@@ -1,7 +1,3 @@
-# %%
-
-
-# %%
 from collections import OrderedDict
 import numpy as np
 import torch
@@ -136,7 +132,7 @@ class Network(nn.Module):
                          context=context)
 
         fully_connected = nn.Sequential(
-            nn.BatchNorm1d(n_hidden),
+            # nn.BatchNorm1d(n_hidden),
             nn.Linear(n_hidden, out_features, bias=False)
         )
         self.fc = OverLastDim(fully_connected)
@@ -148,15 +144,15 @@ class Network(nn.Module):
                       kernel_size=(41, 11),
                       stride=(2, 2),
                       padding=(0, 10)),
-            nn.BatchNorm2d(32),
-            nn.Hardtanh(0, self._relu_clip, inplace=True),
+            # nn.BatchNorm2d(32),
+            # nn.Hardtanh(0, self._relu_clip, inplace=True),
             nn.Conv2d(in_channels=32,
                       out_channels=32,
                       kernel_size=(21, 11),
                       stride=(2, 1),
                       padding=(0, 0)),
-            nn.BatchNorm2d(32),
-            nn.Hardtanh(0, self._relu_clip, inplace=True)
+            # nn.BatchNorm2d(32),
+            # nn.Hardtanh(0, self._relu_clip, inplace=True)
         )
 
     @staticmethod
@@ -204,9 +200,13 @@ class Network(nn.Module):
         self.rnns = nn.Sequential(rnns)
 
         if not bidirectional:
+            # self.lookahead = nn.Sequential(
+            #     Lookahead(n_hidden, context=context),
+            #     nn.Hardtanh(0, self._relu_clip, inplace=True))
             self.lookahead = nn.Sequential(
-                Lookahead(n_hidden, context=context),
-                nn.Hardtanh(0, self._relu_clip, inplace=True))
+                Lookahead(n_hidden, context=context))
+
+ 
 
     def forward(self, x):
         """Computes a single forward pass through the network.
@@ -244,8 +244,8 @@ class RNNWrapper(nn.Module):
         and backward units is summed before return.
         """
         super().__init__()
-        if batch_norm:
-            self.batch_norm = OverLastDim(nn.BatchNorm1d(input_size))
+        # if batch_norm:
+        #     self.batch_norm = OverLastDim(nn.BatchNorm1d(input_size))
         self.bidirectional = bidirectional
         self.rnn = rnn_type(input_size=input_size,
                             hidden_size=hidden_size,
