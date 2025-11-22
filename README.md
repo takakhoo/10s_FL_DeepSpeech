@@ -140,6 +140,21 @@ iterations gradually once the NaNs are resolved.
   finish without being killed by the shell; lisplab-1 has idle RTX 6000 Ada
   GPUs confirmed via `nvidia-smi`.
 
+### 5. Observations from the 22 Nov 10 s run
+- Config: DS1, `lr=0.05`, `max_iterations=4000`, `grid_size=300`, `grid_overlap=150`, lisplab‑1 GPU0. Logs + artifacts live in  
+  `logging/0s-13s/DS1_batchstart_0_batch_end_1_init_uniform_opt_Adam_lr_0.05_reg_None_regw_0.0_top-grad-perc_1.0_cpt_None/`.
+- Runtime: 4,656 s (`long_run.out` records every grid iteration).
+- Metrics (from `analysis/metrics.json`):
+  - Global MAE = 10.73 (per-grid MAE ranges 9.79→7.93 in the tail where the clip fades).
+  - Global SNR = ‑1.80 dB.
+  - Decoder hypothesis is nonsense and WER=1.0 because `generate_metrics.py` currently instantiates a **randomly initialized** DS1 when no checkpoint is supplied.
+  - The reconstructed waveform created by `librosa.feature.inverse.mfcc_to_audio` sounds harsh because we never undo MFCC mean/std normalization nor the ±6 context frames.
+- Takeaways / mistakes:
+  1. **CTC mismatch.** `src/main.py` was temporarily switched to PyTorch’s `CTCLoss` for gradient generation, but the optimizer still uses Minh’s `batched_ctc_v2` inside `meta_loss`. This means the dummy is matching gradients from two different losses, which explains why grid losses decreased while MAE/WER worsened. We need to revert `main.py` to Minh’s loss (or switch both call sites to PyTorch CTC) before trusting new runs.
+  2. **Decoder needs checkpoints.** To get meaningful WER we must load the same DS1 weights that produced the gradients. Add a `--decoder_checkpoint` flag to `src/analysis/generate_metrics.py` (or reuse `args.checkpoint_path`) so the decoder mirrors the teacher model.
+  3. **Diagnostics before new runs.** Before launching another 4‑hour job, reuse the existing payload, rerun `generate_metrics.py` with the proper checkpoint, and confirm whether the decoded text still fails. If it does, consider a no-grid “full 10 s” run (set `--use_grid_optimization` off) purely as a sanity check.
+  4. **Documentation updates.** Whenever we change the loss or decoder behavior, record the exact command + rationale in this README so we can track which experiments used Minh’s untouched objective versus the PyTorch variant.
+
 ## Experiment Log (append chronologically)
 | Timestamp (EST)       | Action | Notes / Files |
 |----------------------|--------|----------------|
@@ -156,6 +171,10 @@ iterations gradually once the NaNs are resolved.
 | 2025-11-22 00:17     | DS1 long-form instrumentation test | Re-ran the 40-iteration job to validate checkpoint/plot filenames; all four grids saved PNGs + `sampleidx_0_grid_grid*_checkpoint.pt`. |
 | 2025-11-22 00:18     | DS1 10 s full run (relaunch) | Started `timeout 14400s python ... --max_iterations 4000` via `nohup` (logs: `long_run.out`, pid in `long_run.pid`) so the job can finish unattended on lisplab-1 GPU 0. |
 | 2025-11-22 01:40     | DS1 10 s evaluation | Run finished (runtime ≈4,767 s). Logged global MAE=8.01, SNR≈‑0.04 dB plus per-grid metrics + MFCC comparison plots under `analysis/`. Waveform reconstruction via `librosa` is blocked by the cluster’s `coverage` shim (numba import error), so decoder/WER are pending once that dependency issue is resolved. |
+| 2025-11-22 02:00     | Code change | Upgraded `coverage` to 7.6.1 to unblock `librosa`/`numba`, added per-grid optimizer/scheduler resets + scheduler guards in `src/optimize.py`, and renamed the prior long-form folder to `..._preLRdecay` before the new run. |
+| 2025-11-22 02:05     | DS1 10 s rerun | Re-launched `timeout 4h python src/main.py ... --use_grid_optimization` with the new LR reset logic; checkpoints + logs live in `logging/0s-13s/DS1_batchstart_0_batch_end_1_init_uniform_opt_Adam_lr_0.05_reg_None_regw_0.0_top-grad-perc_1.0_cpt_None/long_run.out` (runtime ≈4,656 s). |
+| 2025-11-22 03:30     | Metrics/spectrograms | Added `src/analysis/generate_metrics.py` to automate MAE/SNR/WER/audio dumps. Generated fresh PNGs, `segment_metrics.csv`, `metrics.json`, and `sampleidx_0_reconstruction.wav` under the new experiment’s `analysis/` folder (global MAE ≈10.73, SNR ≈‑1.80 dB, decoder WER still 1.0 with random DS1 weights). |
+| 2025-11-22 04:10     | Post-mortem | Confirmed the PyTorch-vs-Minhs CTC mismatch plus the “decoder uses random weights” bug, and documented both in the README along with next steps (load checkpoint during decoding, rerun with Minh’s loss, and optionally test a no-grid 10 s optimization). |
 
 Add a new row every time you tweak hyper-parameters, rerun `main.py`, or touch
 source files so we can reconstruct the timeline later.
