@@ -111,12 +111,7 @@ def reconstruct_dataset(network, device, dataloader, args):
         output_sizes = (torch.ones(out.shape[1]) * out.shape[0]).int()
         out =  out.log_softmax(-1)
 
-        # Use PyTorch's native CTCLoss (log-space + zero_infinity) for numerical
-        # stability on both short and long utterances.
-        ctc_loss_fn = torch.nn.CTCLoss(blank=0, reduction='mean', zero_infinity=True)
-        def loss_func(x, y):
-            val = ctc_loss_fn(x, y, output_sizes, target_sizes)
-            return torch.nan_to_num(val, nan=0.0, posinf=1e6, neginf=-1e6)
+        loss_func = lambda x,y : batched_ctc_v2(x, y, output_sizes, target_sizes)
 
         loss = loss_func(out, targets)
         # loss_func_lib   = torch.nn.CTCLoss()
@@ -173,13 +168,28 @@ def reconstruct_dataset(network, device, dataloader, args):
         end_time = time.time()
                         
         save_path = os.path.join(args.exp_path, f'sampleidx_{i}_' + 'x_param_last.pt'.format(i))
-        # save x_param, optimization time, inputs, targets
-        torch.save({ 'x_param': x_param.detach().cpu(),
-                    'time': end_time - start_time,
-                    'inputs': inputs.detach().cpu(), 
-                    'targets': targets.detach().cpu(),
-                    'transcript': text
-                    }, save_path)
+
+        # Capture the DS1 weights so downstream decoders can replay the exact model.
+        network_state = {}
+        for key, value in model.state_dict().items():
+            if not torch.is_tensor(value):
+                continue
+            cpu_value = value.detach().cpu()
+            if key.startswith('network.'):
+                trimmed = key[len('network.'):]
+                network_state[trimmed] = cpu_value
+            else:
+                network_state[key] = cpu_value
+
+        # save x_param, optimization time, inputs, targets, and model snapshot
+        torch.save({
+            'x_param': x_param.detach().cpu(),
+            'time': end_time - start_time,
+            'inputs': inputs.detach().cpu(),
+            'targets': targets.detach().cpu(),
+            'transcript': text,
+            'network': network_state
+        }, save_path)
 
 def main(args):
     """
